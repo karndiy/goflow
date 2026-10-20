@@ -1,0 +1,30 @@
+import uuid
+from datetime import datetime
+
+from pydantic import BaseModel, Field
+
+
+class ContentCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+
+
+class ContentUpdate(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+
+
+class ContentRead(BaseModel):
+    id: uuid.UUID
+    workspace_id: uuid.UUID
+    title: str
+    status: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ContentListResponse(BaseModel):
+    items: list[ContentRead]
+    total: int
+    limit: int
+    offset: int
