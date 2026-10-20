@@ -12,6 +12,7 @@ from app.connectors.registry import registry as default_registry
 from app.modules.accounts.models import SocialAccount
 from app.modules.content.models import ContentVariant
 from app.modules.publishing.models import PublishAttempt, PublishingJob
+from app.modules.publishing.service import recompute_content_status
 
 MAX_ATTEMPTS = 3
 RETRY_BACKOFF_BASE_SECONDS = 60
@@ -65,6 +66,7 @@ async def process_job(
             )
         )
         await db.commit()
+        await recompute_content_status(db, job.content_variant_id)
         return job
 
     db.add(
@@ -102,6 +104,7 @@ async def process_job(
         job.status = "unknown"
 
     await db.commit()
+    await recompute_content_status(db, job.content_variant_id)
     await db.refresh(job)
     return job
 
@@ -118,7 +121,7 @@ async def reconcile_processing_jobs(
         .limit(limit)
     )
     jobs = list(result.scalars().all())
-    updated: list[uuid.UUID] = []
+    updated: list[tuple[uuid.UUID, uuid.UUID]] = []
 
     for job in jobs:
         social_account = await db.get(SocialAccount, job.social_account_id)
@@ -145,7 +148,9 @@ async def reconcile_processing_jobs(
         job.attempts = attempt_number
         job.status = status_result.status
         job.last_error = status_result.error_message
-        updated.append(job.id)
+        updated.append((job.id, job.content_variant_id))
 
     await db.commit()
-    return updated
+    for _job_id, content_variant_id in updated:
+        await recompute_content_status(db, content_variant_id)
+    return [job_id for job_id, _ in updated]

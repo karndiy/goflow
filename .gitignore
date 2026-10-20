@@ -6,6 +6,7 @@ venv/
 .env
 .env.*
 !.env.example
+!frontend/.env.development
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
