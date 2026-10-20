@@ -1,11 +1,25 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+SUPPORTED_CREDENTIAL_PLATFORMS = ("facebook", "tiktok")
 
 
 class ConnectResponse(BaseModel):
     authorization_url: str
+
+
+class PlatformCredentialRead(BaseModel):
+    platform: str
+    app_id: str
+    has_secret: bool
+    updated_at: datetime
+
+
+class PlatformCredentialWrite(BaseModel):
+    app_id: str = Field(min_length=1, max_length=255)
+    app_secret: str = Field(min_length=1)
 
 
 class SocialAccountRead(BaseModel):

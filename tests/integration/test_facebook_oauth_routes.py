@@ -29,6 +29,7 @@ async def test_connect_returns_authorization_url_when_configured(
     api_client, user_factory, monkeypatch
 ):
     monkeypatch.setattr(accounts_router_module.settings, "meta_app_id", "app-123")
+    monkeypatch.setattr(accounts_router_module.settings, "meta_app_secret", "secret-123")
     identity = await user_factory()
     await _login(api_client, identity)
 

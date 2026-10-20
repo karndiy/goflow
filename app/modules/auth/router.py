@@ -9,9 +9,10 @@ from app.core.security import (
     SESSION_MAX_AGE_SECONDS,
     create_session_token,
 )
+from app.modules.audit.service import log_action
 from app.modules.auth.models import User, WorkspaceMember
 from app.modules.auth.schemas import LoginRequest, UserRead, WorkspaceRead, WorkspaceUpdate
-from app.modules.auth.service import authenticate_user
+from app.modules.auth.service import authenticate_user, get_primary_membership
 
 settings = get_settings()
 
@@ -39,6 +40,12 @@ async def login(
         secure=settings.session_cookie_secure,
         samesite="lax",
     )
+
+    membership = await get_primary_membership(db, user.id)
+    if membership is not None:
+        await log_action(db, membership.workspace_id, user, "auth.login")
+        await db.commit()
+
     return user
 
 
@@ -63,13 +70,27 @@ async def get_workspace(
 async def update_workspace(
     payload: WorkspaceUpdate,
     membership: WorkspaceMember = require_workspace_admin,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     workspace = membership.workspace
+    changes = {}
     if payload.name is not None:
+        changes["name"] = payload.name
         workspace.name = payload.name
     if payload.timezone is not None:
+        changes["timezone"] = payload.timezone
         workspace.timezone = payload.timezone
+    if changes:
+        await log_action(
+            db,
+            membership.workspace_id,
+            current_user,
+            "workspace.update",
+            target_type="workspace",
+            target_id=str(workspace.id),
+            details=changes,
+        )
     await db.commit()
     await db.refresh(workspace)
     return workspace

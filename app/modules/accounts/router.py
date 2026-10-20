@@ -14,7 +14,9 @@ from app.core.database import get_db
 from app.modules.accounts import service
 from app.modules.accounts.oauth_state import consume_oauth_state, create_oauth_state
 from app.modules.accounts.schemas import ConnectResponse, SocialAccountRead
+from app.modules.audit.service import log_action
 from app.modules.auth.models import WorkspaceMember
+from app.modules.auth.service import get_user_by_id
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -27,6 +29,17 @@ def _facebook_redirect_uri() -> str:
     return f"{settings.app_base_url}/api/v1/oauth/facebook/callback"
 
 
+async def _resolve_facebook_credentials(
+    db: AsyncSession, workspace_id: uuid.UUID
+) -> tuple[str, str] | None:
+    credential = await service.get_platform_credential(db, workspace_id, "facebook")
+    if credential is not None:
+        return credential.app_id, service.decrypt_platform_credential(credential)
+    if settings.meta_app_id and settings.meta_app_secret:
+        return settings.meta_app_id, settings.meta_app_secret
+    return None
+
+
 @router.get("", response_model=list[SocialAccountRead])
 async def list_accounts(
     membership: WorkspaceMember = Depends(get_current_membership),
@@ -36,12 +49,17 @@ async def list_accounts(
 
 
 @router.post("/facebook/connect", response_model=ConnectResponse)
-async def connect_facebook(membership: WorkspaceMember = Depends(get_current_membership)):
-    if not settings.meta_app_id:
+async def connect_facebook(
+    membership: WorkspaceMember = Depends(get_current_membership),
+    db: AsyncSession = Depends(get_db),
+):
+    credentials = await _resolve_facebook_credentials(db, membership.workspace_id)
+    if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Facebook integration is not configured",
         )
+    app_id, _ = credentials
 
     state = await create_oauth_state(
         workspace_id=str(membership.workspace_id),
@@ -50,7 +68,7 @@ async def connect_facebook(membership: WorkspaceMember = Depends(get_current_mem
     )
     authorization_url = facebook_oauth.build_authorization_url(
         api_version=settings.meta_graph_api_version,
-        app_id=settings.meta_app_id,
+        app_id=app_id,
         redirect_uri=_facebook_redirect_uri(),
         state=state,
     )
@@ -75,19 +93,27 @@ async def facebook_callback(
     if state_data is None or state_data.get("platform") != "facebook":
         return RedirectResponse(f"{frontend_accounts_url}?{urlencode({'error': 'invalid_state'})}")
 
+    workspace_id = uuid.UUID(state_data["workspace_id"])
+    credentials = await _resolve_facebook_credentials(db, workspace_id)
+    if credentials is None:
+        return RedirectResponse(
+            f"{frontend_accounts_url}?{urlencode({'error': 'facebook_not_configured'})}"
+        )
+    app_id, app_secret = credentials
+
     client = FacebookGraphClient(settings.meta_graph_api_version)
     try:
         token_response = await facebook_oauth.exchange_code_for_token(
             client,
-            app_id=settings.meta_app_id,
-            app_secret=settings.meta_app_secret,
+            app_id=app_id,
+            app_secret=app_secret,
             redirect_uri=_facebook_redirect_uri(),
             code=code,
         )
         long_lived = await facebook_oauth.exchange_for_long_lived_token(
             client,
-            app_id=settings.meta_app_id,
-            app_secret=settings.meta_app_secret,
+            app_id=app_id,
+            app_secret=app_secret,
             short_lived_token=token_response["access_token"],
         )
         pages = await facebook_oauth.list_pages(client, long_lived["access_token"])
@@ -102,12 +128,24 @@ async def facebook_callback(
     for page in pages:
         await service.upsert_social_account_with_token(
             db,
-            workspace_id=uuid.UUID(state_data["workspace_id"]),
+            workspace_id=workspace_id,
             platform="facebook",
             external_account_id=page["id"],
             account_name=page.get("name", page["id"]),
             access_token=page["access_token"],
         )
+
+    actor = await get_user_by_id(db, uuid.UUID(state_data["user_id"]))
+    if actor is not None:
+        await log_action(
+            db,
+            workspace_id,
+            actor,
+            "accounts.facebook_connected",
+            target_type="social_account",
+            details={"page_count": len(pages)},
+        )
+        await db.commit()
 
     return RedirectResponse(
         f"{frontend_accounts_url}?{urlencode({'connected': 'facebook', 'count': len(pages)})}"

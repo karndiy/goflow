@@ -4,9 +4,10 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_current_membership
+from app.api.dependencies import get_current_membership, get_current_user
 from app.core.database import get_db
-from app.modules.auth.models import WorkspaceMember
+from app.modules.audit.service import log_action
+from app.modules.auth.models import User, WorkspaceMember
 from app.modules.publishing import service
 from app.modules.publishing.schemas import (
     CalendarEntry,
@@ -53,15 +54,27 @@ async def get_job(
 async def retry_job(
     job_id: uuid.UUID,
     membership: WorkspaceMember = Depends(get_current_membership),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     job = await service.get_job_for_workspace(db, membership.workspace_id, job_id)
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
     try:
-        return await service.retry_job(db, job)
+        retried = await service.retry_job(db, job)
     except service.ScheduleError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    await log_action(
+        db,
+        membership.workspace_id,
+        current_user,
+        "publishing.retry",
+        target_type="publishing_job",
+        target_id=str(job.id),
+    )
+    await db.commit()
+    return retried
 
 
 @router.get("/calendar", response_model=list[CalendarEntry])

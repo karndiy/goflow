@@ -52,3 +52,20 @@ class OAuthToken(UUIDPrimaryKeyMixin, Base):
     )
 
     social_account: Mapped[SocialAccount] = relationship(back_populates="oauth_token")
+
+
+class PlatformCredential(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Workspace-level app credentials (e.g. Meta App ID/Secret) used to initiate OAuth."""
+
+    __tablename__ = "platform_credentials"
+    __table_args__ = (UniqueConstraint("workspace_id", "platform", name="uq_platform_credential"),)
+
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    platform: Mapped[str] = mapped_column(String(32), nullable=False)
+    app_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    encrypted_app_secret: Mapped[str] = mapped_column(String, nullable=False)

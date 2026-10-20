@@ -3,9 +3,10 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_current_membership
+from app.api.dependencies import get_current_membership, get_current_user
 from app.core.database import get_db
-from app.modules.auth.models import WorkspaceMember
+from app.modules.audit.service import log_action
+from app.modules.auth.models import User, WorkspaceMember
 from app.modules.content import service
 from app.modules.content.models import Content, ContentVariant
 from app.modules.content.schemas import (
@@ -38,9 +39,21 @@ async def _get_owned_content(
 async def create_content(
     payload: ContentCreate,
     membership: WorkspaceMember = Depends(get_current_membership),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await service.create_content(db, membership.workspace_id, payload.title)
+    content = await service.create_content(db, membership.workspace_id, payload.title)
+    await log_action(
+        db,
+        membership.workspace_id,
+        current_user,
+        "content.create",
+        target_type="content",
+        target_id=str(content.id),
+        details={"title": content.title},
+    )
+    await db.commit()
+    return content
 
 
 @router.get("", response_model=ContentListResponse)
@@ -68,21 +81,48 @@ async def get_content(content: Content = Depends(_get_owned_content)):
 async def update_content(
     payload: ContentUpdate,
     content: Content = Depends(_get_owned_content),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await service.update_content_title(db, content, payload.title)
+    updated = await service.update_content_title(db, content, payload.title)
+    await log_action(
+        db,
+        content.workspace_id,
+        current_user,
+        "content.update",
+        target_type="content",
+        target_id=str(content.id),
+        details={"title": payload.title},
+    )
+    await db.commit()
+    return updated
 
 
 @router.delete("/{content_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_content(
-    content: Content = Depends(_get_owned_content), db: AsyncSession = Depends(get_db)
+    content: Content = Depends(_get_owned_content),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     if content.status != "draft":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Only draft content can be deleted",
         )
+    content_id = str(content.id)
+    workspace_id = content.workspace_id
+    title = content.title
     await service.delete_content(db, content)
+    await log_action(
+        db,
+        workspace_id,
+        current_user,
+        "content.delete",
+        target_type="content",
+        target_id=content_id,
+        details={"title": title},
+    )
+    await db.commit()
 
 
 async def _get_owned_variant(
@@ -146,6 +186,7 @@ async def delete_variant(
 async def schedule_content(
     payload: ScheduleRequest,
     content: Content = Depends(_get_owned_content),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     if content.status not in ("draft", "failed", "partial_failure"):
@@ -154,16 +195,40 @@ async def schedule_content(
             detail=f"Content in status '{content.status}' cannot be (re)scheduled",
         )
     try:
-        return await publishing_service.schedule_content(db, content, payload.assignments)
+        jobs = await publishing_service.schedule_content(db, content, payload.assignments)
     except publishing_service.ScheduleError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
 
+    await log_action(
+        db,
+        content.workspace_id,
+        current_user,
+        "content.schedule",
+        target_type="content",
+        target_id=str(content.id),
+        details={"job_count": len(jobs), "platforms": [a.platform for a in payload.assignments]},
+    )
+    await db.commit()
+    return jobs
+
 
 @router.post("/{content_id}/cancel")
 async def cancel_content(
-    content: Content = Depends(_get_owned_content), db: AsyncSession = Depends(get_db)
+    content: Content = Depends(_get_owned_content),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     cancelled = await publishing_service.cancel_content_jobs(db, content)
+    await log_action(
+        db,
+        content.workspace_id,
+        current_user,
+        "content.cancel",
+        target_type="content",
+        target_id=str(content.id),
+        details={"cancelled_jobs": cancelled},
+    )
+    await db.commit()
     return {"cancelled_jobs": cancelled}

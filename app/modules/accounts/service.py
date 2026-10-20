@@ -5,8 +5,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.connectors.base import SocialConnector
-from app.core.encryption import encrypt_token
-from app.modules.accounts.models import OAuthToken, SocialAccount
+from app.core.encryption import decrypt_token, encrypt_token
+from app.modules.accounts.models import OAuthToken, PlatformCredential, SocialAccount
 
 
 async def list_social_accounts(db: AsyncSession, workspace_id: uuid.UUID) -> list[SocialAccount]:
@@ -81,3 +81,56 @@ async def check_account_health(
     social_account.status = "active" if is_valid else "needs_reauth"
     await db.commit()
     return is_valid
+
+
+async def list_platform_credentials(
+    db: AsyncSession, workspace_id: uuid.UUID
+) -> list[PlatformCredential]:
+    result = await db.execute(
+        select(PlatformCredential)
+        .where(PlatformCredential.workspace_id == workspace_id)
+        .order_by(PlatformCredential.platform)
+    )
+    return list(result.scalars().all())
+
+
+async def get_platform_credential(
+    db: AsyncSession, workspace_id: uuid.UUID, platform: str
+) -> PlatformCredential | None:
+    result = await db.execute(
+        select(PlatformCredential).where(
+            PlatformCredential.workspace_id == workspace_id,
+            PlatformCredential.platform == platform,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def upsert_platform_credential(
+    db: AsyncSession, workspace_id: uuid.UUID, platform: str, app_id: str, app_secret: str
+) -> PlatformCredential:
+    credential = await get_platform_credential(db, workspace_id, platform)
+    encrypted = encrypt_token(app_secret)
+    if credential is None:
+        credential = PlatformCredential(
+            workspace_id=workspace_id,
+            platform=platform,
+            app_id=app_id,
+            encrypted_app_secret=encrypted,
+        )
+        db.add(credential)
+    else:
+        credential.app_id = app_id
+        credential.encrypted_app_secret = encrypted
+    await db.commit()
+    await db.refresh(credential)
+    return credential
+
+
+async def delete_platform_credential(db: AsyncSession, credential: PlatformCredential) -> None:
+    await db.delete(credential)
+    await db.commit()
+
+
+def decrypt_platform_credential(credential: PlatformCredential) -> str:
+    return decrypt_token(credential.encrypted_app_secret)

@@ -7,6 +7,8 @@ const NAV_ITEMS = [
   { to: '/queue', label: 'Publishing Queue' },
   { to: '/calendar', label: 'Calendar' },
   { to: '/accounts', label: 'Accounts' },
+  { to: '/updates', label: 'Update Log' },
+  { to: '/settings', label: 'Settings' },
 ]
 
 export default function Layout() {

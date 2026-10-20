@@ -120,3 +120,27 @@ export interface DashboardSummary {
   jobs_by_status: Record<string, number>
   accounts: { platform: string; status: string; count: number }[]
 }
+
+export interface PlatformCredential {
+  platform: string
+  app_id: string
+  has_secret: boolean
+  updated_at: string
+}
+
+export interface AuditLogEntry {
+  id: string
+  actor_email: string
+  action: string
+  target_type: string | null
+  target_id: string | null
+  details: Record<string, unknown>
+  created_at: string
+}
+
+export interface AuditLogListResponse {
+  items: AuditLogEntry[]
+  total: number
+  limit: number
+  offset: number
+}
