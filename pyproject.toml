@@ -15,6 +15,7 @@ dependencies = [
     "redis>=5.2",
     "bcrypt>=4.2",
     "itsdangerous>=2.2",
+    "rq>=2.0",
 ]
 
 [project.optional-dependencies]

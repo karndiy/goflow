@@ -9,7 +9,9 @@ from app.core.database import AsyncSessionLocal, engine
 from app.core.redis import redis_client
 from app.core.security import hash_password
 from app.main import app
+from app.modules.accounts.models import SocialAccount
 from app.modules.auth.models import User, Workspace, WorkspaceMember
+from app.modules.content.models import Content, ContentVariant
 
 
 @pytest_asyncio.fixture(scope="session", autouse=True)
@@ -64,3 +66,35 @@ async def user_factory(db_session):
         if user is not None:
             await db_session.delete(user)
     await db_session.commit()
+
+
+@pytest_asyncio.fixture
+async def mock_pipeline_factory(db_session, user_factory):
+    """Builds a workspace + mock social account + draft content variant, ready to schedule."""
+
+    async def _create() -> SimpleNamespace:
+        identity = await user_factory()
+
+        social_account = SocialAccount(
+            workspace_id=identity.workspace.id,
+            platform="mock",
+            external_account_id=f"acct-{uuid.uuid4().hex}",
+            account_name="Mock Account",
+        )
+        content = Content(workspace_id=identity.workspace.id, title="Test content")
+        db_session.add_all([social_account, content])
+        await db_session.flush()
+
+        variant = ContentVariant(
+            content_id=content.id, platform="mock", text="Hello world", media_type="none"
+        )
+        db_session.add(variant)
+        await db_session.commit()
+        await db_session.refresh(social_account)
+        await db_session.refresh(variant)
+
+        return SimpleNamespace(
+            identity=identity, social_account=social_account, content=content, variant=variant
+        )
+
+    return _create
