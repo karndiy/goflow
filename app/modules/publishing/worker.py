@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.connectors.base import MediaType, PublishRequest
-from app.connectors.mock.connector import RETRYABLE_ERROR_CODES
+from app.connectors.errors import REAUTH_ERROR_CODES, RETRYABLE_ERROR_CODES
 from app.connectors.registry import ConnectorRegistry
 from app.connectors.registry import registry as default_registry
 from app.modules.accounts.models import SocialAccount
@@ -43,7 +43,7 @@ async def process_job(
     options = (variant.payload_json or {}).get("options", {})
     media_type = cast(MediaType, variant.media_type)
     request = PublishRequest(
-        account_id=social_account.external_account_id,
+        account_id=str(social_account.id),
         text=variant.text,
         media_type=media_type,
         media_urls=[],
@@ -90,7 +90,10 @@ async def process_job(
         job.last_error = None
     elif result.status == "failed":
         job.last_error = result.error_message
-        if result.error_code in RETRYABLE_ERROR_CODES and attempt_number < MAX_ATTEMPTS:
+        if result.error_code in REAUTH_ERROR_CODES:
+            social_account.status = "needs_reauth"
+            job.status = "failed"
+        elif result.error_code in RETRYABLE_ERROR_CODES and attempt_number < MAX_ATTEMPTS:
             job.status = "scheduled"
             job.scheduled_at = datetime.now(UTC) + _retry_delay(attempt_number)
         else:

@@ -8,6 +8,8 @@ MediaType = Literal["none", "image", "video", "carousel"]
 
 @dataclass
 class PublishRequest:
+    # GoFlow's internal social_accounts.id (UUID string), not the platform's external account id --
+    # lets a connector resolve its own stored credentials without the caller handling tokens.
     account_id: str
     text: str
     media_type: MediaType
@@ -37,4 +39,5 @@ class SocialConnector(ABC):
     async def get_publish_status(self, external_post_id: str) -> PublishResult: ...
 
     @abstractmethod
-    async def validate_account(self, account_id: str) -> bool: ...
+    async def validate_account(self, account_id: str) -> bool:
+        """`account_id` is GoFlow's internal social_accounts.id, same as PublishRequest."""

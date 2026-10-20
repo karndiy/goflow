@@ -4,6 +4,10 @@ from datetime import datetime
 from pydantic import BaseModel
 
 
+class ConnectResponse(BaseModel):
+    authorization_url: str
+
+
 class SocialAccountRead(BaseModel):
     id: uuid.UUID
     workspace_id: uuid.UUID

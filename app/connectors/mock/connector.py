@@ -2,8 +2,6 @@ import uuid
 
 from app.connectors.base import PublishRequest, PublishResult, SocialConnector
 
-RETRYABLE_ERROR_CODES = {"rate_limited", "temporary_unavailable"}
-
 
 class MockTimeoutError(Exception):
     """Simulates a request that may or may not have reached the provider."""
