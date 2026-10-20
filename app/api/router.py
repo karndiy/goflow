@@ -5,6 +5,8 @@ from app.api.health import router as health_router
 from app.api.settings import router as settings_router
 from app.modules.accounts.router import oauth_router
 from app.modules.accounts.router import router as accounts_router
+from app.modules.assistant.router import router as requests_router
+from app.modules.audit.router import releases_router
 from app.modules.audit.router import router as audit_router
 from app.modules.auth.router import router as auth_router
 from app.modules.content.router import router as content_router
@@ -20,3 +22,5 @@ api_router.include_router(publishing_router)
 api_router.include_router(dashboard_router)
 api_router.include_router(settings_router)
 api_router.include_router(audit_router)
+api_router.include_router(requests_router)
+api_router.include_router(releases_router)

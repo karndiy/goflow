@@ -10,6 +10,8 @@ from app.modules.accounts.schemas import (
     PlatformCredentialRead,
     PlatformCredentialWrite,
 )
+from app.modules.assistant import service as assistant_service
+from app.modules.assistant.schemas import AISettingsRead, AISettingsWrite
 from app.modules.audit.service import log_action
 from app.modules.auth.models import User, WorkspaceMember
 
@@ -84,3 +86,46 @@ async def delete_platform_credential(
         target_id=platform,
     )
     await db.commit()
+
+
+@router.get("/ai", response_model=AISettingsRead)
+async def get_ai_settings(
+    membership: WorkspaceMember = require_workspace_admin,
+    db: AsyncSession = Depends(get_db),
+):
+    ai_settings = await assistant_service.get_ai_settings(db, membership.workspace_id)
+    if ai_settings is None:
+        return AISettingsRead(
+            model="", has_api_key=False, updated_at=membership.workspace.updated_at
+        )
+    return AISettingsRead(
+        model=ai_settings.model,
+        has_api_key=bool(ai_settings.encrypted_api_key),
+        updated_at=ai_settings.updated_at,
+    )
+
+
+@router.put("/ai", response_model=AISettingsRead)
+async def set_ai_settings(
+    payload: AISettingsWrite,
+    membership: WorkspaceMember = require_workspace_admin,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    ai_settings = await assistant_service.upsert_ai_settings(
+        db, membership.workspace_id, payload.api_key, payload.model
+    )
+    await log_action(
+        db,
+        membership.workspace_id,
+        current_user,
+        "settings.ai_set",
+        target_type="ai_settings",
+        details={"model": payload.model},
+    )
+    await db.commit()
+    return AISettingsRead(
+        model=ai_settings.model,
+        has_api_key=True,
+        updated_at=ai_settings.updated_at,
+    )

@@ -244,9 +244,14 @@ th {
   color: #4b5563;
 }
 .badge-scheduled,
-.badge-queued {
+.badge-queued,
+.badge-pending {
   background: #e0e7ff;
   color: #3730a3;
+}
+.badge-answered {
+  background: #dcfce7;
+  color: #166534;
 }
 .badge-publishing,
 .badge-processing {

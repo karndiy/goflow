@@ -11,6 +11,7 @@ import QueuePage from './pages/QueuePage'
 import CalendarPage from './pages/CalendarPage'
 import SettingsPage from './pages/SettingsPage'
 import UpdateLogPage from './pages/UpdateLogPage'
+import RequestsPage from './pages/RequestsPage'
 
 export default function App() {
   return (
@@ -28,6 +29,7 @@ export default function App() {
               <Route path="/accounts" element={<AccountsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/updates" element={<UpdateLogPage />} />
+              <Route path="/requests" element={<RequestsPage />} />
             </Route>
           </Route>
         </Routes>

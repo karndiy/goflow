@@ -1,7 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { api, ApiError } from '../api/client'
 import { useAuth } from '../context/AuthContext'
-import type { PlatformCredential, Workspace } from '../api/types'
+import type { AISettings, PlatformCredential, Workspace } from '../api/types'
+
+const CLAUDE_MODELS = ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5']
 
 const COMMON_TIMEZONES = [
   'Asia/Bangkok',
@@ -111,6 +113,92 @@ export default function SettingsPage() {
       </div>
 
       <PlatformCredentialsSection />
+      <AISettingsSection />
+    </div>
+  )
+}
+
+function AISettingsSection() {
+  const [settings, setSettings] = useState<AISettings | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [apiKey, setApiKey] = useState('')
+  const [model, setModel] = useState('claude-opus-5')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  function load() {
+    api.get<AISettings>('/settings/ai').then((s) => {
+      setSettings(s)
+      if (s.model) setModel(s.model)
+    })
+  }
+
+  useEffect(load, [])
+
+  async function handleSave(e: FormEvent) {
+    e.preventDefault()
+    setError(null)
+    setSaving(true)
+    try {
+      await api.put('/settings/ai', { api_key: apiKey, model })
+      setApiKey('')
+      setEditing(false)
+      load()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not save AI settings')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!settings) return null
+
+  return (
+    <div className="card" style={{ maxWidth: 480 }}>
+      <h3 style={{ marginTop: 0 }}>AI Assistant (Claude)</h3>
+      <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>
+        Powers the Requests page and AI-assisted content writing. Your Anthropic API key is
+        encrypted at rest.
+      </p>
+      <p>
+        {settings.has_api_key ? (
+          <span className="badge badge-active">configured ({settings.model})</span>
+        ) : (
+          <span className="badge badge-draft">not configured</span>
+        )}
+      </p>
+
+      {editing ? (
+        <form onSubmit={handleSave} style={{ display: 'grid', gap: 8, maxWidth: 320 }}>
+          <input
+            placeholder="Anthropic API key (sk-ant-...)"
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            required
+          />
+          <select value={model} onChange={(e) => setModel(e.target.value)}>
+            {CLAUDE_MODELS.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+          {error && <p className="error-text">{error}</p>}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-primary" type="submit" disabled={saving}>
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+            <button className="btn" type="button" onClick={() => setEditing(false)}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      ) : (
+        <button className="btn" onClick={() => setEditing(true)}>
+          {settings.has_api_key ? 'Update' : 'Set up'}
+        </button>
+      )}
     </div>
   )
 }

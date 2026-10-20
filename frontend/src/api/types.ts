@@ -144,3 +144,38 @@ export interface AuditLogListResponse {
   limit: number
   offset: number
 }
+
+export interface AISettings {
+  model: string
+  has_api_key: boolean
+  updated_at: string
+}
+
+export type UserRequestStatus = 'pending' | 'answered' | 'failed'
+
+export interface UserRequestEntry {
+  id: string
+  requester_email: string
+  prompt: string
+  response: string | null
+  status: UserRequestStatus
+  error_message: string | null
+  created_at: string
+  answered_at: string | null
+}
+
+export interface UserRequestListResponse {
+  items: UserRequestEntry[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface Release {
+  id: string
+  version: string
+  title: string
+  description: string | null
+  created_by_email: string
+  released_at: string
+}
