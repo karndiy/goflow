@@ -2,9 +2,15 @@
 
 from app.modules.accounts.models import OAuthToken, PlatformCredential, SocialAccount
 from app.modules.assistant.models import AISettings, UserRequest
-from app.modules.audit.models import AuditLog
+from app.modules.audit.models import AuditLog, Release
 from app.modules.auth.models import User, Workspace, WorkspaceMember
-from app.modules.content.models import Content, ContentVariant, ContentVariantMedia, MediaAsset
+from app.modules.content.models import (
+    Content,
+    ContentGenerationJob,
+    ContentVariant,
+    ContentVariantMedia,
+    MediaAsset,
+)
 from app.modules.publishing.models import PublishAttempt, PublishingJob
 
 __all__ = [
@@ -21,6 +27,8 @@ __all__ = [
     "PublishingJob",
     "PublishAttempt",
     "AuditLog",
+    "Release",
     "AISettings",
     "UserRequest",
+    "ContentGenerationJob",
 ]

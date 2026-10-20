@@ -61,7 +61,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://goflow:goflow@db:5432/goflow
       REDIS_URL: redis://redis:6379/0
-    command: ["rq", "worker", "publishing", "--url", "redis://redis:6379/0"]
+    command: ["rq", "worker", "publishing", "content_generation", "--url", "redis://redis:6379/0"]
     depends_on:
       db:
         condition: service_healthy

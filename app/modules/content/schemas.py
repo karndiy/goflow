@@ -57,3 +57,23 @@ class ContentVariantRead(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class GenerationJobCreate(BaseModel):
+    platform: str = Field(min_length=1, max_length=32)
+    brief: str = Field(min_length=1, max_length=4000)
+
+
+class GenerationJobRead(BaseModel):
+    id: uuid.UUID
+    content_id: uuid.UUID
+    platform: str
+    brief: str
+    status: str
+    generated_text: str | None
+    error_message: str | None
+    requested_by_email: str
+    created_at: datetime
+    completed_at: datetime | None
+
+    model_config = {"from_attributes": True}

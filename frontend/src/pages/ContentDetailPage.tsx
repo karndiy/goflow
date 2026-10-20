@@ -1,7 +1,7 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
-import type { Content, ContentVariant, SocialAccount } from '../api/types'
+import type { Content, ContentVariant, GenerationJob, SocialAccount } from '../api/types'
 import StatusBadge from '../components/StatusBadge'
 
 const CANCELLABLE_STATUSES = ['scheduled', 'publishing', 'partial_failure']
@@ -22,6 +22,11 @@ export default function ContentDetailPage() {
   const [scheduleAccountId, setScheduleAccountId] = useState<Record<string, string>>({})
   const [scheduleAt, setScheduleAt] = useState<Record<string, string>>({})
 
+  const [genPlatform, setGenPlatform] = useState('mock')
+  const [genBrief, setGenBrief] = useState('')
+  const [activeJob, setActiveJob] = useState<GenerationJob | null>(null)
+  const pollRef = useRef<number | null>(null)
+
   function load() {
     if (!id) return
     api.get<Content>(`/contents/${id}`).then(setContent)
@@ -30,6 +35,46 @@ export default function ContentDetailPage() {
   }
 
   useEffect(load, [id])
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) window.clearInterval(pollRef.current)
+    }
+  }, [])
+
+  async function handleGenerate(e: FormEvent) {
+    e.preventDefault()
+    if (!id || !genBrief.trim()) return
+    setError(null)
+    try {
+      const job = await api.post<GenerationJob>(`/contents/${id}/generate`, {
+        platform: genPlatform,
+        brief: genBrief,
+      })
+      setActiveJob(job)
+      setGenBrief('')
+
+      pollRef.current = window.setInterval(async () => {
+        const updated = await api.get<GenerationJob>(
+          `/contents/${id}/generation-jobs/${job.id}`,
+        )
+        setActiveJob(updated)
+        if (updated.status === 'completed' || updated.status === 'failed') {
+          if (pollRef.current) window.clearInterval(pollRef.current)
+          pollRef.current = null
+          if (updated.status === 'completed') load()
+        }
+      }, 1500)
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.status === 503
+            ? 'The AI assistant is not configured yet. Set an Anthropic API key in Settings.'
+            : err.message
+          : 'Could not start generation',
+      )
+    }
+  }
 
   async function handleAddVariant(e: FormEvent) {
     e.preventDefault()
@@ -121,6 +166,55 @@ export default function ContentDetailPage() {
           <p className="error-text" style={{ margin: 0 }}>
             {error}
           </p>
+        </div>
+      )}
+
+      {content.status === 'draft' && (
+        <div className="card">
+          <h3 style={{ marginTop: 0 }}>Write with Claude</h3>
+          <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>
+            Describe what you want, and Claude will draft (or redraft) the variant for that
+            platform. You can still edit it by hand afterward.
+          </p>
+          <form
+            onSubmit={handleGenerate}
+            style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}
+          >
+            <select
+              value={genPlatform}
+              onChange={(e) => setGenPlatform(e.target.value)}
+              style={{ width: 140 }}
+            >
+              <option value="mock">mock</option>
+              <option value="facebook">facebook</option>
+            </select>
+            <textarea
+              placeholder="e.g. Announce our new dark mode feature, upbeat tone, one emoji"
+              value={genBrief}
+              onChange={(e) => setGenBrief(e.target.value)}
+              rows={2}
+              style={{ flex: 1 }}
+            />
+            <button
+              className="btn btn-primary"
+              type="submit"
+              disabled={activeJob !== null && activeJob.status !== 'completed' && activeJob.status !== 'failed'}
+            >
+              Generate with Claude
+            </button>
+          </form>
+
+          {activeJob && (
+            <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <StatusBadge status={activeJob.status} />
+              <span className="muted" style={{ fontSize: 13 }}>
+                {activeJob.platform}
+                {activeJob.status === 'failed' && activeJob.error_message
+                  ? `: ${activeJob.error_message}`
+                  : ''}
+              </span>
+            </div>
+          )}
         </div>
       )}
 

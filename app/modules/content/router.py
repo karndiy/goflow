@@ -8,7 +8,7 @@ from app.core.database import get_db
 from app.modules.audit.service import log_action
 from app.modules.auth.models import User, WorkspaceMember
 from app.modules.content import service
-from app.modules.content.models import Content, ContentVariant
+from app.modules.content.models import Content, ContentGenerationJob, ContentVariant
 from app.modules.content.schemas import (
     ContentCreate,
     ContentListResponse,
@@ -17,9 +17,13 @@ from app.modules.content.schemas import (
     ContentVariantCreate,
     ContentVariantRead,
     ContentVariantUpdate,
+    GenerationJobCreate,
+    GenerationJobRead,
 )
 from app.modules.publishing import service as publishing_service
 from app.modules.publishing.schemas import PublishingJobRead, ScheduleRequest
+from app.tasks.jobs import generate_content_job
+from app.tasks.queue import generation_queue
 
 router = APIRouter(prefix="/contents", tags=["content"])
 
@@ -232,3 +236,49 @@ async def cancel_content(
     )
     await db.commit()
     return {"cancelled_jobs": cancelled}
+
+
+@router.post(
+    "/{content_id}/generate", response_model=GenerationJobRead, status_code=status.HTTP_201_CREATED
+)
+async def generate_variant(
+    payload: GenerationJobCreate,
+    content: Content = Depends(_get_owned_content),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if content.status != "draft":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Content must be a draft to generate or regenerate a variant",
+        )
+    job = await service.create_generation_job(
+        db, content.id, payload.platform, payload.brief, current_user
+    )
+    generation_queue.enqueue(generate_content_job, str(job.id))
+
+    await log_action(
+        db,
+        content.workspace_id,
+        current_user,
+        "content.generate_requested",
+        target_type="content_generation_job",
+        target_id=str(job.id),
+        details={"platform": payload.platform},
+    )
+    await db.commit()
+    return job
+
+
+@router.get("/{content_id}/generation-jobs/{job_id}", response_model=GenerationJobRead)
+async def get_generation_job(
+    job_id: uuid.UUID,
+    content: Content = Depends(_get_owned_content),
+    db: AsyncSession = Depends(get_db),
+) -> ContentGenerationJob:
+    job = await service.get_generation_job(db, content.id, job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Generation job not found"
+        )
+    return job

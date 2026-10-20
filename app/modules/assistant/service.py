@@ -1,5 +1,7 @@
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 import anthropic
 from sqlalchemy import func, or_, select
@@ -10,6 +12,61 @@ from app.modules.assistant.models import AISettings, UserRequest
 from app.modules.auth.models import User
 
 MAX_RESPONSE_TOKENS = 8192
+
+
+@dataclass
+class ClaudeCallResult:
+    succeeded: bool
+    text: str | None = None
+    error_message: str | None = None
+
+
+async def call_claude(
+    ai_settings: AISettings,
+    user_message: str,
+    system: str | None = None,
+    max_tokens: int = MAX_RESPONSE_TOKENS,
+) -> ClaudeCallResult:
+    """Shared Claude call used by both the Requests feature and content generation."""
+    api_key = decrypt_token(ai_settings.encrypted_api_key)
+
+    try:
+        async with anthropic.AsyncAnthropic(api_key=api_key) as client:
+            create_kwargs: dict[str, Any] = {
+                "model": ai_settings.model,
+                "max_tokens": max_tokens,
+                "output_config": {"effort": "medium"},
+                "messages": [{"role": "user", "content": user_message}],
+            }
+            if system is not None:
+                create_kwargs["system"] = system
+            response = await client.messages.create(**create_kwargs)
+    except anthropic.AuthenticationError:
+        return ClaudeCallResult(succeeded=False, error_message="Invalid Anthropic API key")
+    except anthropic.PermissionDeniedError:
+        return ClaudeCallResult(
+            succeeded=False, error_message="Anthropic API key lacks permission for this model"
+        )
+    except anthropic.NotFoundError:
+        return ClaudeCallResult(
+            succeeded=False, error_message=f"Unknown model '{ai_settings.model}'"
+        )
+    except anthropic.RateLimitError:
+        return ClaudeCallResult(
+            succeeded=False, error_message="Rate limited by Anthropic API, try again later"
+        )
+    except anthropic.APIConnectionError:
+        return ClaudeCallResult(succeeded=False, error_message="Could not reach the Anthropic API")
+    except anthropic.APIStatusError as exc:
+        return ClaudeCallResult(
+            succeeded=False, error_message=f"Anthropic API error: {exc.message}"
+        )
+
+    if response.stop_reason == "refusal":
+        return ClaudeCallResult(succeeded=False, error_message="Claude declined this request")
+
+    text = "".join(block.text for block in response.content if block.type == "text")
+    return ClaudeCallResult(succeeded=True, text=text)
 
 
 async def get_ai_settings(db: AsyncSession, workspace_id: uuid.UUID) -> AISettings | None:
@@ -50,43 +107,15 @@ async def create_request(
 
 
 async def answer_request(db: AsyncSession, request: UserRequest, ai_settings: AISettings) -> None:
-    api_key = decrypt_token(ai_settings.encrypted_api_key)
+    result = await call_claude(ai_settings, request.prompt)
 
-    try:
-        async with anthropic.AsyncAnthropic(api_key=api_key) as client:
-            response = await client.messages.create(
-                model=ai_settings.model,
-                max_tokens=MAX_RESPONSE_TOKENS,
-                output_config={"effort": "medium"},
-                messages=[{"role": "user", "content": request.prompt}],
-            )
-    except anthropic.AuthenticationError:
-        request.status = "failed"
-        request.error_message = "Invalid Anthropic API key"
-    except anthropic.PermissionDeniedError:
-        request.status = "failed"
-        request.error_message = "Anthropic API key lacks permission for this model"
-    except anthropic.NotFoundError:
-        request.status = "failed"
-        request.error_message = f"Unknown model '{ai_settings.model}'"
-    except anthropic.RateLimitError:
-        request.status = "failed"
-        request.error_message = "Rate limited by Anthropic API, try again later"
-    except anthropic.APIConnectionError:
-        request.status = "failed"
-        request.error_message = "Could not reach the Anthropic API"
-    except anthropic.APIStatusError as exc:
-        request.status = "failed"
-        request.error_message = f"Anthropic API error: {exc.message}"
+    if result.succeeded:
+        request.response = result.text
+        request.status = "answered"
+        request.answered_at = datetime.now(UTC)
     else:
-        if response.stop_reason == "refusal":
-            request.status = "failed"
-            request.error_message = "Claude declined to answer this request"
-        else:
-            text = "".join(block.text for block in response.content if block.type == "text")
-            request.response = text
-            request.status = "answered"
-            request.answered_at = datetime.now(UTC)
+        request.status = "failed"
+        request.error_message = result.error_message
 
     await db.commit()
 

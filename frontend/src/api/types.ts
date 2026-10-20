@@ -171,6 +171,21 @@ export interface UserRequestListResponse {
   offset: number
 }
 
+export type GenerationJobStatus = 'pending' | 'processing' | 'completed' | 'failed'
+
+export interface GenerationJob {
+  id: string
+  content_id: string
+  platform: string
+  brief: string
+  status: GenerationJobStatus
+  generated_text: string | null
+  error_message: string | null
+  requested_by_email: string
+  created_at: string
+  completed_at: string | null
+}
+
 export interface Release {
   id: string
   version: string
