@@ -52,13 +52,14 @@ async def test_mock_connector_status_polling():
     connector = MockConnector()
     result = await connector.publish(_request(mock_outcome="processing"))
 
-    assert (await connector.get_publish_status(result.external_post_id)).status == "unknown"
+    status = await connector.get_publish_status("acct-1", result.external_post_id)
+    assert status.status == "unknown"
 
     connector.set_status_response(
         result.external_post_id,
         PublishResult(status="published", external_post_id=result.external_post_id),
     )
-    resolved = await connector.get_publish_status(result.external_post_id)
+    resolved = await connector.get_publish_status("acct-1", result.external_post_id)
     assert resolved.status == "published"
 
 

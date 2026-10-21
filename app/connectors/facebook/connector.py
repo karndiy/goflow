@@ -76,7 +76,7 @@ class FacebookConnector(SocialConnector):
 
         return PublishResult(status="published", external_post_id=post_id, raw_response=response)
 
-    async def get_publish_status(self, external_post_id: str) -> PublishResult:
+    async def get_publish_status(self, account_id: str, external_post_id: str) -> PublishResult:
         raise NotImplementedError(
             "FacebookConnector publishes text/image posts synchronously "
             "(supports_status_polling=False); there is nothing to poll."

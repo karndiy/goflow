@@ -25,6 +25,7 @@ async def upsert_social_account_with_token(
     external_account_id: str,
     account_name: str,
     access_token: str,
+    refresh_token: str | None = None,
     expires_at: datetime | None = None,
 ) -> SocialAccount:
     social_account = (
@@ -51,6 +52,7 @@ async def upsert_social_account_with_token(
     await db.flush()
 
     encrypted = encrypt_token(access_token)
+    encrypted_refresh = encrypt_token(refresh_token) if refresh_token else None
     token_row = (
         await db.execute(
             select(OAuthToken).where(OAuthToken.social_account_id == social_account.id)
@@ -62,11 +64,14 @@ async def upsert_social_account_with_token(
             OAuthToken(
                 social_account_id=social_account.id,
                 encrypted_access_token=encrypted,
+                encrypted_refresh_token=encrypted_refresh,
                 expires_at=expires_at,
             )
         )
     else:
         token_row.encrypted_access_token = encrypted
+        if encrypted_refresh is not None:
+            token_row.encrypted_refresh_token = encrypted_refresh
         token_row.expires_at = expires_at
 
     await db.commit()
@@ -134,3 +139,21 @@ async def delete_platform_credential(db: AsyncSession, credential: PlatformCrede
 
 def decrypt_platform_credential(credential: PlatformCredential) -> str:
     return decrypt_token(credential.encrypted_app_secret)
+
+
+async def resolve_platform_credentials(
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    platform: str,
+    env_app_id: str,
+    env_app_secret: str,
+) -> tuple[str, str] | None:
+    """Workspace-stored credentials first (editable from Settings, no restart needed), then the
+    env var fallback for existing env-only deployments. Shared by the OAuth connect/callback
+    routes and by connectors that need app-level credentials at runtime (e.g. token refresh)."""
+    credential = await get_platform_credential(db, workspace_id, platform)
+    if credential is not None:
+        return credential.app_id, decrypt_platform_credential(credential)
+    if env_app_id and env_app_secret:
+        return env_app_id, env_app_secret
+    return None

@@ -1,8 +1,10 @@
 from datetime import UTC, datetime
 
-from app.connectors.base import PublishResult
+from app.connectors.base import PublishRequest, PublishResult
 from app.connectors.mock.connector import MockConnector
 from app.connectors.registry import ConnectorRegistry
+from app.modules.content import media as media_service
+from app.modules.content.models import ContentVariantMedia, MediaAsset
 from app.modules.publishing import service
 from app.modules.publishing.worker import process_job, reconcile_processing_jobs
 
@@ -11,6 +13,16 @@ def _registry_with_mock() -> ConnectorRegistry:
     registry = ConnectorRegistry()
     registry.register(MockConnector())
     return registry
+
+
+class _SpyConnector(MockConnector):
+    def __init__(self) -> None:
+        super().__init__()
+        self.last_request: PublishRequest | None = None
+
+    async def publish(self, request: PublishRequest) -> PublishResult:
+        self.last_request = request
+        return await super().publish(request)
 
 
 async def _queued_job(db_session, pipeline, options: dict):
@@ -113,6 +125,39 @@ async def test_process_job_ignores_job_not_in_queued_state(db_session, mock_pipe
 
     assert result.status == "scheduled"
     assert result.attempts == 0
+
+
+async def test_process_job_passes_attached_media_urls_to_connector(
+    db_session, mock_pipeline_factory
+):
+    pipeline = await mock_pipeline_factory()
+
+    asset = MediaAsset(
+        workspace_id=pipeline.identity.workspace.id,
+        storage_key=f"{pipeline.identity.workspace.id}/test.png",
+        mime_type="image/png",
+        size_bytes=10,
+    )
+    db_session.add(asset)
+    await db_session.flush()
+    db_session.add(
+        ContentVariantMedia(
+            content_variant_id=pipeline.variant.id, media_asset_id=asset.id, position=0
+        )
+    )
+    pipeline.variant.media_type = "image"
+    await db_session.commit()
+
+    job = await _queued_job(db_session, pipeline, {"mock_outcome": "published"})
+
+    spy = _SpyConnector()
+    registry = ConnectorRegistry()
+    registry.register(spy)
+
+    await process_job(db_session, job.id, registry)
+
+    assert spy.last_request is not None
+    assert spy.last_request.media_urls == [media_service.media_asset_to_read(asset).file_url]
 
 
 async def test_reconcile_processing_jobs_resolves_to_published(db_session, mock_pipeline_factory):

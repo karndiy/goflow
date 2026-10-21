@@ -146,4 +146,4 @@ async def test_get_publish_status_not_implemented(facebook_account):
     connector = _connector(lambda request: httpx.Response(200, json={}))
 
     with pytest.raises(NotImplementedError):
-        await connector.get_publish_status("some-post-id")
+        await connector.get_publish_status(str(facebook_account.id), "some-post-id")

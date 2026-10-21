@@ -36,7 +36,9 @@ class SocialConnector(ABC):
     async def publish(self, request: PublishRequest) -> PublishResult: ...
 
     @abstractmethod
-    async def get_publish_status(self, external_post_id: str) -> PublishResult: ...
+    async def get_publish_status(self, account_id: str, external_post_id: str) -> PublishResult:
+        """`account_id` is GoFlow's internal social_accounts.id (same as PublishRequest) --
+        some platforms' status checks are per-user authenticated calls, not a public lookup."""
 
     @abstractmethod
     async def validate_account(self, account_id: str) -> bool:

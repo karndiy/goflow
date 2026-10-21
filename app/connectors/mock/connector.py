@@ -46,7 +46,7 @@ class MockConnector(SocialConnector):
 
         raise ValueError(f"Unknown mock_outcome: {outcome}")
 
-    async def get_publish_status(self, external_post_id: str) -> PublishResult:
+    async def get_publish_status(self, account_id: str, external_post_id: str) -> PublishResult:
         result = self._status_responses.get(external_post_id)
         if result is None:
             return PublishResult(status="unknown", external_post_id=external_post_id)

@@ -35,13 +35,39 @@ export default function AccountsPage() {
     }
   }
 
+  async function connectTikTok() {
+    setConnectError(null)
+    setConnecting(true)
+    try {
+      const { authorization_url } = await api.post<{ authorization_url: string }>(
+        '/accounts/tiktok/connect',
+      )
+      window.location.href = authorization_url
+    } catch (err) {
+      setConnectError(
+        err instanceof ApiError
+          ? err.status === 503
+            ? 'TikTok integration is not configured on the server (missing TIKTOK_CLIENT_KEY/TIKTOK_CLIENT_SECRET, or set it in Settings).'
+            : err.message
+          : 'Could not start TikTok connection',
+      )
+    } finally {
+      setConnecting(false)
+    }
+  }
+
   return (
     <div>
       <div className="page-header">
         <h1>Accounts</h1>
-        <button className="btn btn-primary" onClick={connectFacebook} disabled={connecting}>
-          {connecting ? 'Connecting...' : 'Connect Facebook Page'}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-primary" onClick={connectFacebook} disabled={connecting}>
+            {connecting ? 'Connecting...' : 'Connect Facebook Page'}
+          </button>
+          <button className="btn btn-primary" onClick={connectTikTok} disabled={connecting}>
+            {connecting ? 'Connecting...' : 'Connect TikTok'}
+          </button>
+        </div>
       </div>
 
       {connectError && (
@@ -57,7 +83,8 @@ export default function AccountsPage() {
           <p className="muted">Loading...</p>
         ) : accounts.length === 0 ? (
           <p className="empty-state">
-            No social accounts connected yet. Connect a Facebook Page to get started.
+            No social accounts connected yet. Connect a Facebook Page or TikTok account to get
+            started.
           </p>
         ) : (
           <table>

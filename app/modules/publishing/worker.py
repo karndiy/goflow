@@ -10,6 +10,7 @@ from app.connectors.errors import REAUTH_ERROR_CODES, RETRYABLE_ERROR_CODES
 from app.connectors.registry import ConnectorRegistry
 from app.connectors.registry import registry as default_registry
 from app.modules.accounts.models import SocialAccount
+from app.modules.content.media import get_variant_media_urls
 from app.modules.content.models import ContentVariant
 from app.modules.publishing.models import PublishAttempt, PublishingJob
 from app.modules.publishing.service import recompute_content_status
@@ -43,11 +44,12 @@ async def process_job(
     attempt_number = job.attempts + 1
     options = (variant.payload_json or {}).get("options", {})
     media_type = cast(MediaType, variant.media_type)
+    media_urls = await get_variant_media_urls(db, variant.id)
     request = PublishRequest(
         account_id=str(social_account.id),
         text=variant.text,
         media_type=media_type,
-        media_urls=[],
+        media_urls=media_urls,
         options=options,
     )
 
@@ -128,7 +130,9 @@ async def reconcile_processing_jobs(
         if social_account is None or job.external_post_id is None:
             continue
         connector = connector_registry.get(social_account.platform)
-        status_result = await connector.get_publish_status(job.external_post_id)
+        status_result = await connector.get_publish_status(
+            str(social_account.id), job.external_post_id
+        )
 
         if status_result.status == "processing":
             continue
