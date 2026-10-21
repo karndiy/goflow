@@ -39,6 +39,23 @@ export interface ContentListResponse {
 
 export type MediaType = 'none' | 'image' | 'video' | 'carousel'
 
+export interface MediaAsset {
+  id: string
+  workspace_id: string
+  mime_type: string
+  size_bytes: number
+  filename: string | null
+  file_url: string
+  created_at: string
+}
+
+export interface MediaAssetListResponse {
+  items: MediaAsset[]
+  total: number
+  limit: number
+  offset: number
+}
+
 export interface ContentVariant {
   id: string
   content_id: string
@@ -46,6 +63,7 @@ export interface ContentVariant {
   text: string
   media_type: MediaType
   payload_json: Record<string, unknown>
+  media: MediaAsset[]
   created_at: string
   updated_at: string
 }

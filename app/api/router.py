@@ -9,6 +9,7 @@ from app.modules.assistant.router import router as requests_router
 from app.modules.audit.router import releases_router
 from app.modules.audit.router import router as audit_router
 from app.modules.auth.router import router as auth_router
+from app.modules.content.media_router import router as media_router
 from app.modules.content.router import router as content_router
 from app.modules.publishing.router import router as publishing_router
 
@@ -16,6 +17,7 @@ api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(health_router)
 api_router.include_router(auth_router)
 api_router.include_router(content_router)
+api_router.include_router(media_router)
 api_router.include_router(accounts_router)
 api_router.include_router(oauth_router)
 api_router.include_router(publishing_router)

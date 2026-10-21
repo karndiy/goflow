@@ -2,11 +2,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
+from app.connectors.bootstrap import register_default_connectors
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 
 settings = get_settings()
 configure_logging(settings.log_level)
+register_default_connectors()
 
 app = FastAPI(title="GoFlow", version="0.1.0")
 app.add_middleware(

@@ -44,7 +44,9 @@ class ContentVariant(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     content: Mapped[Content] = relationship(back_populates="variants")
     media_links: Mapped[list["ContentVariantMedia"]] = relationship(
-        back_populates="variant", cascade="all, delete-orphan"
+        back_populates="variant",
+        cascade="all, delete-orphan",
+        order_by="ContentVariantMedia.position",
     )
 
 
@@ -77,6 +79,7 @@ class ContentVariantMedia(Base):
     position: Mapped[int] = mapped_column(default=0, nullable=False)
 
     variant: Mapped[ContentVariant] = relationship(back_populates="media_links")
+    media_asset: Mapped[MediaAsset] = relationship(lazy="joined")
 
 
 class ContentGenerationJob(UUIDPrimaryKeyMixin, Base):

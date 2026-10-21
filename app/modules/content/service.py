@@ -4,10 +4,13 @@ from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.modules.assistant.service import call_claude, get_ai_settings
 from app.modules.auth.models import User
+from app.modules.content.media import media_asset_to_read
 from app.modules.content.models import Content, ContentGenerationJob, ContentVariant
+from app.modules.content.schemas import ContentVariantRead
 
 GENERATION_SYSTEM_PROMPT = (
     "You are a social media copywriter for an internal marketing team. Write a single "
@@ -81,15 +84,18 @@ async def create_variant(
     )
     db.add(variant)
     await db.commit()
-    await db.refresh(variant)
-    return variant
+    return await get_variant(db, content_id, variant.id)  # type: ignore[return-value]
 
 
 async def list_variants(db: AsyncSession, content_id: uuid.UUID) -> list[ContentVariant]:
+    # populate_existing: guards against a stale in-memory media_links collection if a variant
+    # object is already in this session's identity map from an earlier query in the request.
     result = await db.execute(
         select(ContentVariant)
+        .options(selectinload(ContentVariant.media_links))
         .where(ContentVariant.content_id == content_id)
         .order_by(ContentVariant.platform)
+        .execution_options(populate_existing=True)
     )
     return list(result.scalars().all())
 
@@ -98,11 +104,26 @@ async def get_variant(
     db: AsyncSession, content_id: uuid.UUID, variant_id: uuid.UUID
 ) -> ContentVariant | None:
     result = await db.execute(
-        select(ContentVariant).where(
-            ContentVariant.id == variant_id, ContentVariant.content_id == content_id
-        )
+        select(ContentVariant)
+        .options(selectinload(ContentVariant.media_links))
+        .where(ContentVariant.id == variant_id, ContentVariant.content_id == content_id)
+        .execution_options(populate_existing=True)
     )
     return result.scalar_one_or_none()
+
+
+def variant_to_read(variant: ContentVariant) -> ContentVariantRead:
+    return ContentVariantRead(
+        id=variant.id,
+        content_id=variant.content_id,
+        platform=variant.platform,
+        text=variant.text,
+        media_type=variant.media_type,
+        payload_json=variant.payload_json,
+        media=[media_asset_to_read(link.media_asset) for link in variant.media_links],
+        created_at=variant.created_at,
+        updated_at=variant.updated_at,
+    )
 
 
 async def update_variant(
@@ -119,8 +140,7 @@ async def update_variant(
     if payload_json is not None:
         variant.payload_json = payload_json
     await db.commit()
-    await db.refresh(variant)
-    return variant
+    return await get_variant(db, variant.content_id, variant.id)  # type: ignore[return-value]
 
 
 async def delete_variant(db: AsyncSession, variant: ContentVariant) -> None:

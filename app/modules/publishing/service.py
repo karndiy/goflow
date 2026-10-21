@@ -5,6 +5,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.connectors.registry import UnsupportedPlatformError
+from app.connectors.registry import registry as default_registry
 from app.modules.accounts.models import SocialAccount
 from app.modules.content.models import Content, ContentVariant
 from app.modules.publishing.models import PublishingJob
@@ -47,7 +49,9 @@ async def schedule_content(
     assignments: list[ScheduleAssignment],
 ) -> list[PublishingJob]:
     variant_rows = await db.execute(
-        select(ContentVariant).where(ContentVariant.content_id == content.id)
+        select(ContentVariant)
+        .options(selectinload(ContentVariant.media_links))
+        .where(ContentVariant.content_id == content.id)
     )
     variants = {v.platform: v for v in variant_rows.scalars().all()}
 
@@ -56,6 +60,21 @@ async def schedule_content(
         variant = variants.get(assignment.platform)
         if variant is None:
             raise ScheduleError(f"No '{assignment.platform}' variant exists for this content")
+
+        try:
+            connector = default_registry.get(assignment.platform)
+        except UnsupportedPlatformError as exc:
+            raise ScheduleError(str(exc)) from exc
+        if variant.media_type not in connector.supported_media_types:
+            raise ScheduleError(
+                f"'{assignment.platform}' does not support media type '{variant.media_type}'"
+            )
+
+        if variant.media_type != "none" and not variant.media_links:
+            raise ScheduleError(
+                f"The '{assignment.platform}' variant is marked '{variant.media_type}' "
+                "but has no media attached"
+            )
 
         social_account = await db.get(SocialAccount, assignment.social_account_id)
         if (

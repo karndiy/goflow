@@ -1,5 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
+from app.modules.accounts.models import SocialAccount
+from app.modules.content.models import ContentVariant
 from app.modules.publishing.models import PublishingJob
 
 
@@ -55,6 +57,67 @@ async def test_schedule_rejects_unknown_platform_variant(api_client, mock_pipeli
         },
     )
 
+    assert response.status_code == 422
+
+
+async def test_schedule_rejects_variant_missing_required_media(
+    api_client, db_session, mock_pipeline_factory
+):
+    pipeline = await mock_pipeline_factory()
+    await _login(api_client, pipeline.identity)
+
+    pipeline.variant.media_type = "image"
+    db_session.add(pipeline.variant)
+    await db_session.commit()
+
+    response = await api_client.post(
+        f"/api/v1/contents/{pipeline.content.id}/schedule",
+        json={
+            "assignments": [
+                {
+                    "social_account_id": str(pipeline.social_account.id),
+                    "platform": "mock",
+                    "scheduled_at": datetime.now(UTC).isoformat(),
+                }
+            ]
+        },
+    )
+    assert response.status_code == 422
+
+
+async def test_schedule_rejects_media_type_unsupported_by_platform(
+    api_client, db_session, mock_pipeline_factory
+):
+    pipeline = await mock_pipeline_factory()
+    await _login(api_client, pipeline.identity)
+
+    facebook_account = SocialAccount(
+        workspace_id=pipeline.identity.workspace.id,
+        platform="facebook",
+        external_account_id="fb-page-1",
+        account_name="FB Page",
+    )
+    db_session.add(facebook_account)
+    db_session.add(
+        ContentVariant(
+            content_id=pipeline.content.id, platform="facebook", text="hi", media_type="video"
+        )
+    )
+    await db_session.commit()
+    await db_session.refresh(facebook_account)
+
+    response = await api_client.post(
+        f"/api/v1/contents/{pipeline.content.id}/schedule",
+        json={
+            "assignments": [
+                {
+                    "social_account_id": str(facebook_account.id),
+                    "platform": "facebook",
+                    "scheduled_at": datetime.now(UTC).isoformat(),
+                }
+            ]
+        },
+    )
     assert response.status_code == 422
 
 

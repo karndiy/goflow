@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
-import type { Content, ContentVariant, GenerationJob, SocialAccount } from '../api/types'
+import type { Content, ContentVariant, GenerationJob, MediaAsset, SocialAccount } from '../api/types'
 import StatusBadge from '../components/StatusBadge'
 
 const CANCELLABLE_STATUSES = ['scheduled', 'publishing', 'partial_failure']
@@ -99,6 +99,33 @@ export default function ContentDetailPage() {
     load()
   }
 
+  async function handleUploadMedia(variant: ContentVariant, file: File) {
+    if (!id) return
+    setError(null)
+    try {
+      const asset = await api.upload<MediaAsset>('/media', file)
+      await api.put(`/contents/${id}/variants/${variant.id}/media`, {
+        media_asset_ids: [...variant.media.map((m) => m.id), asset.id],
+      })
+      load()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not upload media')
+    }
+  }
+
+  async function handleRemoveMedia(variant: ContentVariant, mediaId: string) {
+    if (!id) return
+    setError(null)
+    try {
+      await api.put(`/contents/${id}/variants/${variant.id}/media`, {
+        media_asset_ids: variant.media.filter((m) => m.id !== mediaId).map((m) => m.id),
+      })
+      load()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not remove media')
+    }
+  }
+
   async function handleSchedule(platform: string) {
     if (!id) return
     const accountId = scheduleAccountId[platform]
@@ -187,6 +214,7 @@ export default function ContentDetailPage() {
             >
               <option value="mock">mock</option>
               <option value="facebook">facebook</option>
+              <option value="tiktok">tiktok</option>
             </select>
             <textarea
               placeholder="e.g. Announce our new dark mode feature, upbeat tone, one emoji"
@@ -226,6 +254,78 @@ export default function ContentDetailPage() {
             <div style={{ flex: 1 }}>
               <strong style={{ textTransform: 'capitalize' }}>{v.platform}</strong>
               <p style={{ margin: '4px 0' }}>{v.text || <span className="muted">(empty)</span>}</p>
+
+              {v.media.length > 0 && (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                  {v.media.map((m) => (
+                    <div key={m.id} style={{ position: 'relative' }}>
+                      {m.mime_type.startsWith('image/') ? (
+                        <img
+                          src={m.file_url}
+                          alt={m.filename ?? 'media'}
+                          style={{
+                            width: 72,
+                            height: 72,
+                            objectFit: 'cover',
+                            borderRadius: 4,
+                            border: '1px solid #ddd',
+                          }}
+                        />
+                      ) : (
+                        <div
+                          className="muted"
+                          style={{
+                            width: 72,
+                            height: 72,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            border: '1px solid #ddd',
+                            borderRadius: 4,
+                            fontSize: 11,
+                            textAlign: 'center',
+                            padding: 4,
+                          }}
+                        >
+                          {m.filename ?? 'video'}
+                        </div>
+                      )}
+                      {content.status === 'draft' && (
+                        <button
+                          className="btn btn-danger"
+                          title="Remove media"
+                          style={{
+                            position: 'absolute',
+                            top: -8,
+                            right: -8,
+                            padding: '0 6px',
+                            fontSize: 11,
+                            lineHeight: '18px',
+                          }}
+                          onClick={() => handleRemoveMedia(v, m.id)}
+                        >
+                          x
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {content.status === 'draft' && (
+                <label className="btn" style={{ display: 'inline-block', cursor: 'pointer', fontSize: 13, marginBottom: 8 }}>
+                  Add media
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (file) handleUploadMedia(v, file)
+                      e.target.value = ''
+                    }}
+                  />
+                </label>
+              )}
 
               {SCHEDULABLE_STATUSES.includes(content.status) && (
                 <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
@@ -277,6 +377,7 @@ export default function ContentDetailPage() {
             >
               <option value="mock">mock</option>
               <option value="facebook">facebook</option>
+              <option value="tiktok">tiktok</option>
             </select>
             <textarea
               placeholder="Post text for this platform..."

@@ -34,6 +34,8 @@ services:
       REDIS_URL: redis://redis:6379/0
     ports:
       - "8000:8000"
+    volumes:
+      - goflow_storage:/srv/storage
     depends_on:
       db:
         condition: service_healthy
@@ -70,3 +72,4 @@ services:
 
 volumes:
   goflow_pgdata:
+  goflow_storage:

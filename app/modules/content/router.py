@@ -7,7 +7,7 @@ from app.api.dependencies import get_current_membership, get_current_user
 from app.core.database import get_db
 from app.modules.audit.service import log_action
 from app.modules.auth.models import User, WorkspaceMember
-from app.modules.content import service
+from app.modules.content import media, service
 from app.modules.content.models import Content, ContentGenerationJob, ContentVariant
 from app.modules.content.schemas import (
     ContentCreate,
@@ -19,6 +19,7 @@ from app.modules.content.schemas import (
     ContentVariantUpdate,
     GenerationJobCreate,
     GenerationJobRead,
+    VariantMediaUpdate,
 )
 from app.modules.publishing import service as publishing_service
 from app.modules.publishing.schemas import PublishingJobRead, ScheduleRequest
@@ -156,16 +157,18 @@ async def create_variant(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"A variant for platform '{payload.platform}' already exists",
         )
-    return await service.create_variant(
+    created = await service.create_variant(
         db, content.id, payload.platform, payload.text, payload.media_type, payload.payload_json
     )
+    return service.variant_to_read(created)
 
 
 @router.get("/{content_id}/variants", response_model=list[ContentVariantRead])
 async def list_variants(
     content: Content = Depends(_get_owned_content), db: AsyncSession = Depends(get_db)
 ):
-    return await service.list_variants(db, content.id)
+    variants = await service.list_variants(db, content.id)
+    return [service.variant_to_read(v) for v in variants]
 
 
 @router.patch("/{content_id}/variants/{variant_id}", response_model=ContentVariantRead)
@@ -174,9 +177,40 @@ async def update_variant(
     variant: ContentVariant = Depends(_get_owned_variant),
     db: AsyncSession = Depends(get_db),
 ):
-    return await service.update_variant(
+    updated = await service.update_variant(
         db, variant, payload.text, payload.media_type, payload.payload_json
     )
+    return service.variant_to_read(updated)
+
+
+@router.put("/{content_id}/variants/{variant_id}/media", response_model=ContentVariantRead)
+async def set_variant_media(
+    payload: VariantMediaUpdate,
+    content: Content = Depends(_get_owned_content),
+    variant: ContentVariant = Depends(_get_owned_variant),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        updated = await media.set_variant_media(
+            db, content.workspace_id, variant, payload.media_asset_ids
+        )
+    except media.VariantMediaError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+
+    await log_action(
+        db,
+        content.workspace_id,
+        current_user,
+        "content.variant_media_set",
+        target_type="content_variant",
+        target_id=str(variant.id),
+        details={"media_count": len(payload.media_asset_ids)},
+    )
+    await db.commit()
+    return service.variant_to_read(updated)
 
 
 @router.delete("/{content_id}/variants/{variant_id}", status_code=status.HTTP_204_NO_CONTENT)

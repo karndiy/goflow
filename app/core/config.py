@@ -17,6 +17,8 @@ class Settings(BaseSettings):
 
     token_encryption_key: str = ""
 
+    storage_root: str = "storage"
+
     meta_app_id: str = ""
     meta_app_secret: str = ""
     meta_graph_api_version: str = "v21.0"
